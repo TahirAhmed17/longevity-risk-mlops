@@ -1,0 +1,69 @@
+name: CI Pipeline — Longevity Risk Predictor
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements-local.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements-local.txt
+
+      - name: Run unit tests with pytest
+        run: pytest tests/ -v --tb=short
+
+      - name: Start MLflow tracking server
+        run: |
+          mlflow server \
+            --backend-store-uri sqlite:///mlflow.db \
+            --default-artifact-root ./mlruns \
+            --host 0.0.0.0 \
+            --port 5000 &
+          sleep 5
+          echo "MLflow server started on port 5000"
+
+      - name: Train the model
+        env:
+          MLFLOW_TRACKING_URI: http://localhost:5000
+        run: python src/train.py
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-model
+          path: models/
+          retention-days: 30
+
+      - name: Build Docker image
+        run: docker build -t longevity-risk:latest .
+
+      - name: CI Pipeline Complete
+        run: |
+          echo "============================================"
+          echo "  CI Pipeline completed successfully!"
+          echo "  - Tests passed"
+          echo "  - Model trained and logged to MLflow"
+          echo "  - Docker image built: longevity-risk:latest"
+          echo "============================================"

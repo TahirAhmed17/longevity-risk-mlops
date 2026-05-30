@@ -1,0 +1,51 @@
+# ============================================================
+# Kubernetes Deployment — Longevity Risk Predictor
+# ============================================================
+# 2-replica deployment with resource limits, liveness, and
+# readiness probes targeting the Streamlit health endpoint.
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: longevity-risk
+  labels:
+    app: longevity-risk
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: longevity-risk
+  template:
+    metadata:
+      labels:
+        app: longevity-risk
+    spec:
+      containers:
+        - name: longevity-risk
+          image: longevity-risk:latest
+          ports:
+            - containerPort: 8501
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8501
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3

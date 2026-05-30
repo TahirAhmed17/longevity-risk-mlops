@@ -1,0 +1,60 @@
+name: CD Pipeline — Longevity Risk Predictor
+
+on:
+  workflow_run:
+    workflows: ["CI Pipeline — Longevity Risk Predictor"]
+    types:
+      - completed
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Download trained model artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: trained-model
+          path: models/
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker image with commit SHA tag
+        run: |
+          docker build -t longevity-risk:${{ github.sha }} .
+          docker tag longevity-risk:${{ github.sha }} longevity-risk:latest
+
+      - name: Load Docker image into Minikube
+        run: |
+          minikube image load longevity-risk:${{ github.sha }}
+          minikube image load longevity-risk:latest
+
+      - name: Update image tag in deployment manifest
+        run: |
+          sed -i 's|image: longevity-risk:.*|image: longevity-risk:'${{ github.sha }}'|' k8s/deployment.yaml
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+
+      - name: Wait for Kubernetes rollout
+        run: |
+          kubectl rollout status deployment/longevity-risk --timeout=180s
+
+      - name: Print service URL
+        run: |
+          echo "============================================"
+          echo "  CD Pipeline completed successfully!"
+          echo "============================================"
+          echo ""
+          echo "Service URL:"
+          minikube service longevity-risk-svc --url
+          echo ""
+          echo "MLflow UI: http://localhost:5000"
+          echo "Streamlit App: http://$(minikube ip):30851"
+          echo "============================================"
