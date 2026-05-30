@@ -1,60 +1,55 @@
-name: CD Pipeline — Longevity Risk Predictor
+name: "CD — Deploy to Minikube"
 
 on:
   workflow_run:
-    workflows: ["CI Pipeline — Longevity Risk Predictor"]
+    workflows: ["CI — Train, Test and Build"]
+    branches: [main]
     types:
       - completed
 
 jobs:
   deploy:
-    runs-on: self-hosted
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: self-hosted
 
     steps:
-      - name: Checkout source code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download trained model artifacts
+      - name: Download trained models artifact
         uses: actions/download-artifact@v4
         with:
-          name: trained-model
+          name: trained-models
           path: models/
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker image with commit SHA tag
+      - name: Build Docker image locally
         run: |
-          docker build -t longevity-risk:${{ github.sha }} .
-          docker tag longevity-risk:${{ github.sha }} longevity-risk:latest
+          cp models/scaler.pkl scaler.pkl 2>/dev/null || touch scaler.pkl
+          docker build -t longevity-risk:${{ github.event.workflow_run.head_sha }} .
+          docker tag longevity-risk:${{ github.event.workflow_run.head_sha }} longevity-risk:latest
 
-      - name: Load Docker image into Minikube
-        run: |
-          minikube image load longevity-risk:${{ github.sha }}
-          minikube image load longevity-risk:latest
+      - name: Load image into Minikube
+        run: minikube image load longevity-risk:latest
 
-      - name: Update image tag in deployment manifest
-        run: |
-          sed -i 's|image: longevity-risk:.*|image: longevity-risk:'${{ github.sha }}'|' k8s/deployment.yaml
+      - name: Update image tag in deployment.yaml
+        run: sed -i "s|longevity-risk:latest|longevity-risk:${{ github.event.workflow_run.head_sha }}|g" k8s/deployment.yaml
 
-      - name: Apply Kubernetes manifests
+      - name: Deploy to Minikube
         run: |
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
 
-      - name: Wait for Kubernetes rollout
-        run: |
-          kubectl rollout status deployment/longevity-risk --timeout=180s
+      - name: Wait for deployment rollout
+        run: kubectl rollout status deployment/longevity-risk-predictor --timeout=180s
 
-      - name: Print service URL
+      - name: Print Minikube service URL
+        run: minikube service longevity-risk-svc --url
+
+      - name: CD complete
         run: |
-          echo "============================================"
-          echo "  CD Pipeline completed successfully!"
-          echo "============================================"
-          echo ""
-          echo "Service URL:"
-          minikube service longevity-risk-svc --url
-          echo ""
+          echo "Local deployment complete"
           echo "MLflow UI: http://localhost:5000"
           echo "Streamlit App: http://$(minikube ip):30851"
           echo "============================================"
