@@ -96,6 +96,16 @@ def train_model() -> None:
         "MLFLOW_TRACKING_URI",
         f"sqlite:///{os.path.join(_PROJECT_ROOT, 'mlflow.db')}",
     )
+    
+    # Fallback if server is dead (e.g. in GitHub Actions background step)
+    if "localhost:5000" in tracking_uri:
+        import urllib.request
+        try:
+            urllib.request.urlopen(tracking_uri, timeout=2)
+        except Exception:
+            print("[train] MLflow server unreachable on localhost:5000. Falling back to sqlite backend.")
+            tracking_uri = f"sqlite:///{os.path.join(_PROJECT_ROOT, 'mlflow.db')}"
+
     mlflow.set_tracking_uri(tracking_uri)
     experiment_name = "Longevity-Risk-Prediction"
     mlflow.set_experiment(experiment_name)
