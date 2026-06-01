@@ -219,10 +219,28 @@ THRESHOLD_PATH = os.path.join(MODEL_DIR, "threshold.json")
 # HELPER — load model artifacts
 # ─────────────────────────────────────────────────────────────
 
+def _patch_model_compatibility(model):
+    """Patch models trained with older scikit-learn to work with newer versions.
+
+    Models trained with scikit-learn <=1.3 lack the ``monotonic_cst`` attribute
+    that scikit-learn >=1.4 expects on tree-based estimators.  Adding it as
+    ``None`` restores forward-compatibility without altering predictions.
+    """
+    estimators = getattr(model, "estimators_", None)
+    if estimators is not None:
+        for est in estimators:
+            tree = est if not hasattr(est, "estimators_") else est
+            if not hasattr(tree, "monotonic_cst"):
+                tree.monotonic_cst = None
+    elif not hasattr(model, "monotonic_cst"):
+        model.monotonic_cst = None
+    return model
+
+
 @st.cache_resource(show_spinner=False)
 def load_artifacts():
     """Load the trained model, scaler, and optional threshold."""
-    model = joblib.load(MODEL_PATH)
+    model = _patch_model_compatibility(joblib.load(MODEL_PATH))
     scaler = joblib.load(SCALER_PATH) if os.path.exists(SCALER_PATH) else None
     # Threshold is saved as JSON by train.py
     threshold = 0.5
